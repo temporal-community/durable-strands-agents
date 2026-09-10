@@ -1,0 +1,27 @@
+[project]
+name = "durable-strands-agents"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "botocore[crt]>=1.43.91",
+    "fastapi>=0.141.1",
+    "feedparser>=6.0.14",
+    "python-dotenv>=1.2.3",
+    "requests>=2.34.2",
+    "strands-agents>=1.55.1",
+    "strands-agents-tools>=0.8.8",
+    "temporalio>=1.32.0",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
