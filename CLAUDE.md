@@ -21,11 +21,15 @@ via `Config(proxies=...)`. This is why `worker.py` has `make_strands_plugin()` i
 If you ever "fix" that function away, the network kill-switch demo will silently stop affecting
 Bedrock while still working on the RSS tool, which is a confusing bug to rediscover.
 
-**`TemporalAgent`'s implicit `model="bedrock"` default only applies when `StrandsPlugin()` is
-constructed with `models=None`.** The moment `worker.py` passes a custom `models={...}` dict
-(the proxy-aware path), that implicit default disappears. `agent_workflow.py` therefore passes
-`model="bedrock"` to `TemporalAgent` explicitly — don't remove it, even though it looks
-redundant when reading `worker.py`'s non-proxy branch in isolation.
+**`worker.py`'s `make_strands_plugin()` always passes an explicit `models={...}` dict, proxied
+or not — it never leaves `models=None`.** Before the model-routing feature this repo relied on
+`TemporalAgent`'s implicit `model="bedrock"` default, which only exists when `StrandsPlugin()`
+is constructed with `models=None`. Now `agent_workflow.py` passes `model=<size>` (`small`/
+`medium`/`big`, whichever the Jev classification + `model_router.pick_model_id` resolved to),
+so all three tiers must be registered keys in `worker.py`'s plugin regardless of whether the
+proxy env var is set — there's no implicit default to fall back on anymore. If you ever see
+`StrandsPlugin()` with no `models=` argument reintroduced here, the model router will break for
+every tier except whatever `TemporalAgent` implicitly defaults to.
 
 **The kill-switch proxy (`proxy.py`) must sever already-open tunnels, not just refuse new
 ones.** boto3/urllib3 keep a persistent connection pool; if you cut the network *after* a
@@ -101,4 +105,24 @@ covered by manual end-to-end runs against real Bedrock instead.
 
 The plan (see conversation history / `~/.claude/plans` on the machine this was built on) called
 out a Phase 2 with per-service network toggles — that's built (`Bedrock` / `AWS feed` switches
-in the drawer). Nothing else is currently planned as a follow-up.
+in the drawer). Jev-based model routing is also built (`model_router.py`,
+`classify_prompt_difficulty` in `activities.py`, wired into `agent_workflow.py`/`worker.py`,
+surfaced as a tier badge in the GUI) — see the "Model routing" section below. Nothing else is
+currently planned as a follow-up.
+
+## Model routing (Jev-classified small/medium/big)
+
+Each run classifies the prompt's difficulty with Jev (TypeSafe's classifier, called over
+OpenRouter) as a durable Temporal activity (`classify_prompt_difficulty`), then
+`model_router.pick_model_id` maps the result to one of three Bedrock models
+(`MODELS_BY_SIZE`). Below `CONFIDENCE_FLOOR` (0.6), it biases *up* to the big model rather
+than trusting an unsure classification — this mirrors the reference demo
+([mikegc-aws/jev-strands-video](https://github.com/mikegc-aws/jev-strands-video/tree/main/demos/model_switching))'s
+own stated gap. If the classify activity fails after its bounded retry
+(`CLASSIFY_RETRY_POLICY`, `agent_workflow.py`), the workflow falls back to
+`FALLBACK_CLASSIFICATION` (confidence 0.0) instead of failing the whole run — zero confidence
+trips the same floor, so an unclassified prompt still lands on the safest (big) model rather
+than guessing. **This requires `OPENROUTER_API_KEY` to actually be loaded** — `uv run` does
+*not* auto-load `.env`; use `uv run --env-file .env worker.py` (same for `web.py`/`cli.py` if
+you rely on `.env` for AWS credentials too), or the classifier will always fail over to the
+fallback path and every prompt silently runs on the big model regardless of actual difficulty.

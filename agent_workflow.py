@@ -10,17 +10,46 @@ from strands.hooks.events import (
     BeforeToolCallEvent,
 )
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 from temporalio.contrib.strands import TemporalAgent
 from temporalio.contrib.strands import workflow as strands_workflow
 
-from activities import get_recent_aws_announcements
+from activities import classify_prompt_difficulty, get_recent_aws_announcements
+from model_router import MODEL_ID_TO_SIZE, pick_model_id
 
 TOOL_TIMEOUT = timedelta(seconds=30)
+CLASSIFY_TIMEOUT = timedelta(seconds=30)
+# Bounded, unlike Temporal's unlimited-by-default retries: a bad OPENROUTER_API_KEY or an
+# OpenRouter outage should give up quickly and fall back, not retry forever and hang the demo.
+CLASSIFY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 
 INSTRUCTIONS = (
     "You are a concise AWS assistant for a live conference demo. "
     "Use your tool to check recent AWS announcements when relevant."
 )
+
+# Used when classify_prompt_difficulty fails after all retries (e.g. Jev/OpenRouter is down,
+# or OPENROUTER_API_KEY is missing/invalid) — a run should still complete, just conservatively.
+# Zero confidence trips pick_model_id's confidence floor, so this always resolves to the big
+# model rather than guessing which size an unclassified prompt actually needed.
+FALLBACK_CLASSIFICATION = {"size": "medium", "confidence": 0.0}
+
+
+def build_routing(size: str, confidence: float) -> dict:
+    """Turn a Jev classification into the routing decision the workflow acts on and exposes.
+
+    Jev only classifies (size + confidence); pick_model_id owns the size->model policy,
+    including the confidence-floor safety net, so `resolved_size` (the tier that actually
+    answers) can differ from `size` (what Jev classified) when confidence was low. This stays
+    a plain function so it's testable without any Temporal or Strands machinery.
+    """
+    model_id = pick_model_id(size, confidence)
+    return {
+        "size": size,
+        "confidence": confidence,
+        "model_id": model_id,
+        "resolved_size": MODEL_ID_TO_SIZE[model_id],
+    }
 
 
 class ProgressHook(HookProvider):
@@ -46,15 +75,34 @@ class ProgressHook(HookProvider):
 class DemoAgentWorkflow:
     def __init__(self) -> None:
         self.progress: list[str] = []
+        self.routing: dict = {}
 
     @workflow.query
     def get_progress(self) -> list[str]:
         return self.progress
 
+    @workflow.query
+    def get_routing(self) -> dict:
+        return self.routing
+
     @workflow.run
     async def run(self, prompt: str) -> str:
+        try:
+            classification = await workflow.execute_activity(
+                classify_prompt_difficulty,
+                prompt,
+                start_to_close_timeout=CLASSIFY_TIMEOUT,
+                retry_policy=CLASSIFY_RETRY_POLICY,
+            )
+        except Exception:
+            classification = FALLBACK_CLASSIFICATION
+            self.progress.append("Jev classification unavailable — defaulting to the safest model")
+
+        self.routing = build_routing(classification["size"], classification["confidence"])
+        self.progress.append(f"Routing: {self.routing['size']} -> {self.routing['resolved_size']}")
+
         agent = TemporalAgent(
-            model="bedrock",  # matches the key worker.py registers, proxied or not
+            model=self.routing["resolved_size"],  # matches the key worker.py registers, proxied or not
             start_to_close_timeout=timedelta(seconds=60),
             system_prompt=INSTRUCTIONS,
             tools=[

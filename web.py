@@ -99,17 +99,27 @@ async def status(workflow_id: str) -> dict:
     except Exception:
         progress = []
 
+    try:
+        routing = await handle.query(DemoAgentWorkflow.get_routing)
+    except Exception:
+        routing = {}
+
     if status_name == "COMPLETED":
         result = await handle.result()
-        return {"status": status_name, "progress": progress, "result": result}
+        return {"status": status_name, "progress": progress, "routing": routing, "result": result}
     if status_name == "FAILED":
         try:
             await handle.result()
         except WorkflowFailureError as exc:
-            return {"status": status_name, "progress": progress, "error": str(exc.cause or exc)}
+            return {
+                "status": status_name,
+                "progress": progress,
+                "routing": routing,
+                "error": str(exc.cause or exc),
+            }
         except Exception as exc:
-            return {"status": status_name, "progress": progress, "error": str(exc)}
-    return {"status": status_name, "progress": progress}
+            return {"status": status_name, "progress": progress, "routing": routing, "error": str(exc)}
+    return {"status": status_name, "progress": progress, "routing": routing}
 
 
 if __name__ == "__main__":

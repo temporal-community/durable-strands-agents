@@ -274,6 +274,25 @@
   .status-copy .status-text { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
   .status-copy .status-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
+  .tier-badge {
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: rgba(248,250,252,0.03);
+    margin-left: auto;
+    flex: 0 0 auto;
+    animation: rise 0.4s cubic-bezier(.16,1,.3,1) both;
+  }
+  .tier-badge b { color: var(--off); font-weight: 600; }
+  .tier-badge .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+  .tier-badge.small .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .tier-badge.medium .dot { background: var(--uv-light); box-shadow: 0 0 6px var(--uv-light); }
+  .tier-badge.big .dot { background: var(--err); box-shadow: 0 0 6px var(--err); }
+
   .steps-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
   .steps-wrap::-webkit-scrollbar { width: 5px; }
   .steps-wrap::-webkit-scrollbar-thumb { background: rgba(248,250,252,0.15); border-radius: 4px; }
@@ -508,6 +527,7 @@
               <div class="status-text" id="statusText">Waiting for a prompt</div>
               <div class="status-sub" id="statusSub">Temporal workflow · durable across restarts</div>
             </div>
+            <div class="tier-badge" id="tierBadge" hidden><span class="dot"></span><span id="tierBadgeText"></span></div>
           </div>
 
           <div id="emptyState" class="empty-state">
@@ -582,6 +602,10 @@ const emptyState = document.getElementById('emptyState');
 const liveState = document.getElementById('liveState');
 const resultBox = document.getElementById('resultBox');
 const resultText = document.getElementById('resultText');
+const tierBadge = document.getElementById('tierBadge');
+const tierBadgeText = document.getElementById('tierBadgeText');
+
+const TIER_NICKNAME = { small: 'Haiku', medium: 'Sonnet', big: 'Opus' };
 
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => { promptEl.value = chip.dataset.p; promptEl.focus(); });
@@ -606,6 +630,15 @@ function resetUI() {
   setOrb('running');
   statusText.textContent = 'Starting workflow…';
   statusSub.textContent = 'Dispatching to the Temporal worker';
+  tierBadge.hidden = true;
+}
+
+function renderRouting(routing) {
+  if (!routing || !routing.resolved_size) return;
+  const size = routing.resolved_size;
+  tierBadge.className = 'tier-badge ' + size;
+  tierBadgeText.innerHTML = `<b>${size}</b> · ${TIER_NICKNAME[size] || size}`;
+  tierBadge.hidden = false;
 }
 
 function renderSteps(progress) {
@@ -624,6 +657,7 @@ async function poll(workflowId) {
     const res = await fetch(`/api/status/${workflowId}`);
     const data = await res.json();
     renderSteps(data.progress || []);
+    renderRouting(data.routing);
 
     if (data.status === 'COMPLETED') {
       clearInterval(pollTimer);
