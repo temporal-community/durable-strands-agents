@@ -13,6 +13,7 @@ dependencies = [
     "strands-agents>=1.55.1",
     "strands-agents-tools>=0.8.8",
     "temporalio>=1.32.0",
+    "typesafe-sdk>=0.7.2",
     "uvicorn[standard]>=0.52.4",
 ]
 
