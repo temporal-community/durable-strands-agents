@@ -10,6 +10,7 @@ from strands.hooks.events import (
     BeforeToolCallEvent,
 )
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 from temporalio.contrib.strands import TemporalAgent
 from temporalio.contrib.strands import workflow as strands_workflow
 
@@ -18,11 +19,20 @@ from model_router import MODEL_ID_TO_SIZE, pick_model_id
 
 TOOL_TIMEOUT = timedelta(seconds=30)
 CLASSIFY_TIMEOUT = timedelta(seconds=30)
+# Bounded, unlike Temporal's unlimited-by-default retries: a bad OPENROUTER_API_KEY or an
+# OpenRouter outage should give up quickly and fall back, not retry forever and hang the demo.
+CLASSIFY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 
 INSTRUCTIONS = (
     "You are a concise AWS assistant for a live conference demo. "
     "Use your tool to check recent AWS announcements when relevant."
 )
+
+# Used when classify_prompt_difficulty fails after all retries (e.g. Jev/OpenRouter is down,
+# or OPENROUTER_API_KEY is missing/invalid) — a run should still complete, just conservatively.
+# Zero confidence trips pick_model_id's confidence floor, so this always resolves to the big
+# model rather than guessing which size an unclassified prompt actually needed.
+FALLBACK_CLASSIFICATION = {"size": "medium", "confidence": 0.0}
 
 
 def build_routing(size: str, confidence: float) -> dict:
@@ -77,9 +87,17 @@ class DemoAgentWorkflow:
 
     @workflow.run
     async def run(self, prompt: str) -> str:
-        classification = await workflow.execute_activity(
-            classify_prompt_difficulty, prompt, start_to_close_timeout=CLASSIFY_TIMEOUT
-        )
+        try:
+            classification = await workflow.execute_activity(
+                classify_prompt_difficulty,
+                prompt,
+                start_to_close_timeout=CLASSIFY_TIMEOUT,
+                retry_policy=CLASSIFY_RETRY_POLICY,
+            )
+        except Exception:
+            classification = FALLBACK_CLASSIFICATION
+            self.progress.append("Jev classification unavailable — defaulting to the safest model")
+
         self.routing = build_routing(classification["size"], classification["confidence"])
         self.progress.append(f"Routing: {self.routing['size']} -> {self.routing['resolved_size']}")
 

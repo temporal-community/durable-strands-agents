@@ -13,7 +13,7 @@ from strands.hooks.events import (
     BeforeToolCallEvent,
 )
 
-from agent_workflow import ProgressHook, build_routing
+from agent_workflow import FALLBACK_CLASSIFICATION, ProgressHook, build_routing
 from model_router import MODELS_BY_SIZE
 
 
@@ -58,4 +58,13 @@ def test_build_routing_biases_up_on_low_confidence():
     routing = build_routing(size="small", confidence=0.3)
 
     assert routing["model_id"] == MODELS_BY_SIZE["big"]
+    assert routing["resolved_size"] == "big"
+
+
+def test_fallback_classification_resolves_to_the_safest_model():
+    """If Jev is unreachable, the workflow falls back to FALLBACK_CLASSIFICATION rather than
+    failing the whole run. Its zero confidence must trip the confidence floor so the run still
+    lands on the big/safest model instead of guessing on an unclassified prompt."""
+    routing = build_routing(**FALLBACK_CLASSIFICATION)
+
     assert routing["resolved_size"] == "big"
