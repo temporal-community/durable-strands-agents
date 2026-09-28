@@ -12,17 +12,23 @@ AI agents. CLI + web GUI, both talk to the same workflow.
 
 ```bash
 uv sync
-cp .env.example .env   # AWS_REGION / credentials
+cp .env.example .env   # AWS_REGION / credentials / OPENROUTER_API_KEY
 
-temporal server start-dev                        # terminal 1
-uv run web.py                                     # terminal 2 — http://localhost:8090
+temporal server start-dev                                          # terminal 1
+uv run --env-file .env web.py                                      # terminal 2 — http://localhost:8090
 HTTPS_PROXY=http://127.0.0.1:8899 \
-HTTP_PROXY=http://127.0.0.1:8899 uv run worker.py # terminal 3
+HTTP_PROXY=http://127.0.0.1:8899 uv run --env-file .env worker.py  # terminal 3
 ```
 
-Or skip the GUI and use the CLI: `uv run cli.py "What's new in Bedrock?"`
+`--env-file .env` is required (`uv run` does not load `.env` on its own) — without it,
+`OPENROUTER_API_KEY` won't be set, every prompt's Jev classification will fail over to the
+safe-default fallback, and every run will silently use the biggest model regardless of actual
+difficulty.
 
-Requires Bedrock model access enabled in your AWS account/region.
+Or skip the GUI and use the CLI: `uv run --env-file .env cli.py "What's new in Bedrock?"`
+
+Requires Bedrock model access enabled in your AWS account/region, and an OpenRouter API key
+for Jev (get one at [openrouter.ai/keys](https://openrouter.ai/keys)).
 
 ## Demo the durability
 

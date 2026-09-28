@@ -105,4 +105,24 @@ covered by manual end-to-end runs against real Bedrock instead.
 
 The plan (see conversation history / `~/.claude/plans` on the machine this was built on) called
 out a Phase 2 with per-service network toggles — that's built (`Bedrock` / `AWS feed` switches
-in the drawer). Nothing else is currently planned as a follow-up.
+in the drawer). Jev-based model routing is also built (`model_router.py`,
+`classify_prompt_difficulty` in `activities.py`, wired into `agent_workflow.py`/`worker.py`,
+surfaced as a tier badge in the GUI) — see the "Model routing" section below. Nothing else is
+currently planned as a follow-up.
+
+## Model routing (Jev-classified small/medium/big)
+
+Each run classifies the prompt's difficulty with Jev (TypeSafe's classifier, called over
+OpenRouter) as a durable Temporal activity (`classify_prompt_difficulty`), then
+`model_router.pick_model_id` maps the result to one of three Bedrock models
+(`MODELS_BY_SIZE`). Below `CONFIDENCE_FLOOR` (0.6), it biases *up* to the big model rather
+than trusting an unsure classification — this mirrors the reference demo
+([mikegc-aws/jev-strands-video](https://github.com/mikegc-aws/jev-strands-video/tree/main/demos/model_switching))'s
+own stated gap. If the classify activity fails after its bounded retry
+(`CLASSIFY_RETRY_POLICY`, `agent_workflow.py`), the workflow falls back to
+`FALLBACK_CLASSIFICATION` (confidence 0.0) instead of failing the whole run — zero confidence
+trips the same floor, so an unclassified prompt still lands on the safest (big) model rather
+than guessing. **This requires `OPENROUTER_API_KEY` to actually be loaded** — `uv run` does
+*not* auto-load `.env`; use `uv run --env-file .env worker.py` (same for `web.py`/`cli.py` if
+you rely on `.env` for AWS credentials too), or the classifier will always fail over to the
+fallback path and every prompt silently runs on the big model regardless of actual difficulty.
