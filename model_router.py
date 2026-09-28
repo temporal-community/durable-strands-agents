@@ -9,7 +9,21 @@ MODELS_BY_SIZE: dict[str, str] = {
     "big": "global.anthropic.claude-opus-4-6-v1",
 }
 
-MODEL_ID_TO_SIZE: dict[str, str] = {model_id: size for size, model_id in MODELS_BY_SIZE.items()}
+def build_reverse_size_map(models_by_size: dict[str, str]) -> dict[str, str]:
+    """Invert a size->model_id map, raising if two sizes ever share a model_id.
+
+    A silent positional inversion would let one size vanish from the reverse map with no
+    error if a future edit ever reused a model_id — this fails loudly instead.
+    """
+    reverse: dict[str, str] = {}
+    for size, model_id in models_by_size.items():
+        if model_id in reverse:
+            raise ValueError(f"model_id {model_id!r} is shared by sizes {reverse[model_id]!r} and {size!r}")
+        reverse[model_id] = size
+    return reverse
+
+
+MODEL_ID_TO_SIZE: dict[str, str] = build_reverse_size_map(MODELS_BY_SIZE)
 
 CONFIDENCE_FLOOR = 0.6
 

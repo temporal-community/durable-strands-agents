@@ -2,7 +2,7 @@
 
 import pytest
 
-from model_router import MODELS_BY_SIZE, pick_model_id
+from model_router import MODEL_ID_TO_SIZE, MODELS_BY_SIZE, build_reverse_size_map, pick_model_id
 
 
 def test_maps_each_known_size_to_its_model():
@@ -27,3 +27,16 @@ def test_big_at_low_confidence_stays_big():
 def test_unknown_size_raises():
     with pytest.raises(ValueError):
         pick_model_id("huge", confidence=0.9)
+
+
+def test_module_level_reverse_map_covers_every_known_size():
+    assert set(MODEL_ID_TO_SIZE.values()) == set(MODELS_BY_SIZE.keys())
+
+
+def test_build_reverse_size_map_inverts_cleanly():
+    assert build_reverse_size_map({"small": "id-a", "big": "id-b"}) == {"id-a": "small", "id-b": "big"}
+
+
+def test_build_reverse_size_map_rejects_a_model_id_shared_by_two_sizes():
+    with pytest.raises(ValueError, match="id-a"):
+        build_reverse_size_map({"small": "id-a", "medium": "id-a"})
