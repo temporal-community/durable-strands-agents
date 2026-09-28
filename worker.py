@@ -25,10 +25,15 @@ def make_strands_plugin() -> StrandsPlugin:
     https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     boto_client_config = Config(proxies={"https": https_proxy, "http": https_proxy}) if https_proxy else None
 
-    def make_model(model_id: str):
-        return lambda: BedrockModel(model_id=model_id, boto_client_config=boto_client_config)
-
-    return StrandsPlugin(models={size: make_model(model_id) for size, model_id in MODELS_BY_SIZE.items()})
+    # Construct every tier's BedrockModel right now, at worker startup, rather than lazily
+    # inside each factory. A constructor-level problem (bad model_id, bad boto config) then
+    # fails loudly for all three tiers immediately, instead of silently only surfacing later
+    # when that specific tier happens to get selected by the model router at runtime.
+    models = {
+        size: BedrockModel(model_id=model_id, boto_client_config=boto_client_config)
+        for size, model_id in MODELS_BY_SIZE.items()
+    }
+    return StrandsPlugin(models={size: (lambda model=model: model) for size, model in models.items()})
 
 
 async def main() -> None:
