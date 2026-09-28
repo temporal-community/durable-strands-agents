@@ -21,11 +21,15 @@ via `Config(proxies=...)`. This is why `worker.py` has `make_strands_plugin()` i
 If you ever "fix" that function away, the network kill-switch demo will silently stop affecting
 Bedrock while still working on the RSS tool, which is a confusing bug to rediscover.
 
-**`TemporalAgent`'s implicit `model="bedrock"` default only applies when `StrandsPlugin()` is
-constructed with `models=None`.** The moment `worker.py` passes a custom `models={...}` dict
-(the proxy-aware path), that implicit default disappears. `agent_workflow.py` therefore passes
-`model="bedrock"` to `TemporalAgent` explicitly — don't remove it, even though it looks
-redundant when reading `worker.py`'s non-proxy branch in isolation.
+**`worker.py`'s `make_strands_plugin()` always passes an explicit `models={...}` dict, proxied
+or not — it never leaves `models=None`.** Before the model-routing feature this repo relied on
+`TemporalAgent`'s implicit `model="bedrock"` default, which only exists when `StrandsPlugin()`
+is constructed with `models=None`. Now `agent_workflow.py` passes `model=<size>` (`small`/
+`medium`/`big`, whichever the Jev classification + `model_router.pick_model_id` resolved to),
+so all three tiers must be registered keys in `worker.py`'s plugin regardless of whether the
+proxy env var is set — there's no implicit default to fall back on anymore. If you ever see
+`StrandsPlugin()` with no `models=` argument reintroduced here, the model router will break for
+every tier except whatever `TemporalAgent` implicitly defaults to.
 
 **The kill-switch proxy (`proxy.py`) must sever already-open tunnels, not just refuse new
 ones.** boto3/urllib3 keep a persistent connection pool; if you cut the network *after* a

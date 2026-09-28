@@ -1,4 +1,8 @@
-"""Unit test for ProgressHook — the deterministic hook that feeds the GUI's live step list."""
+"""Unit tests for agent_workflow.py's deterministic, I/O-free pieces.
+
+No full workflow-replay test here (see CLAUDE.md's testing philosophy) — ProgressHook and
+build_routing are plain Python, unit-tested directly, same as the rest of this test suite.
+"""
 
 from types import SimpleNamespace
 
@@ -9,7 +13,8 @@ from strands.hooks.events import (
     BeforeToolCallEvent,
 )
 
-from agent_workflow import ProgressHook
+from agent_workflow import ProgressHook, build_routing
+from model_router import MODELS_BY_SIZE
 
 
 class FakeRegistry:
@@ -36,3 +41,21 @@ def test_records_a_readable_step_for_each_lifecycle_event():
         "Tool finished: get_recent_aws_announcements",
         "Model responded",
     ]
+
+
+def test_build_routing_resolves_the_model_id_and_carries_confidence():
+    routing = build_routing(size="medium", confidence=0.87)
+
+    assert routing == {
+        "size": "medium",
+        "confidence": 0.87,
+        "model_id": MODELS_BY_SIZE["medium"],
+        "resolved_size": "medium",
+    }
+
+
+def test_build_routing_biases_up_on_low_confidence():
+    routing = build_routing(size="small", confidence=0.3)
+
+    assert routing["model_id"] == MODELS_BY_SIZE["big"]
+    assert routing["resolved_size"] == "big"

@@ -9,6 +9,8 @@ MODELS_BY_SIZE: dict[str, str] = {
     "big": "global.anthropic.claude-opus-4-6-v1",
 }
 
+MODEL_ID_TO_SIZE: dict[str, str] = {model_id: size for size, model_id in MODELS_BY_SIZE.items()}
+
 CONFIDENCE_FLOOR = 0.6
 
 
