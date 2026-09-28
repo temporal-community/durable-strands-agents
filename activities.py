@@ -5,6 +5,8 @@ import os
 
 from temporalio import activity
 
+from model_router import MODELS_BY_SIZE
+
 ANNOUNCEMENTS_FEED_URL = "https://aws.amazon.com/about-aws/whats-new/recent/feed/"
 
 # Jev over OpenRouter (matches mikegc-aws/jev-strands-video/demos/model_switching) — the
@@ -67,4 +69,9 @@ async def classify_prompt_difficulty(prompt: str) -> dict:
 
     response = await asyncio.to_thread(call_jev)
     answer = response.answers["size"]
+    # Belt-and-suspenders: the criteria above only ever offer known sizes, but validate
+    # anyway so an unexpected value fails clearly here rather than as a ValueError raised
+    # deep inside pick_model_id, far from where the actual classification happened.
+    if answer.choice not in MODELS_BY_SIZE:
+        raise ValueError(f"Jev returned an unexpected size: {answer.choice!r}")
     return {"size": answer.choice, "confidence": answer.confidence}

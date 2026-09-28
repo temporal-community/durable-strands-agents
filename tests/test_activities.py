@@ -7,6 +7,7 @@ import pytest
 import typesafe_sdk
 
 from activities import classify_prompt_difficulty, get_recent_aws_announcements
+from model_router import MODELS_BY_SIZE
 
 
 @pytest.mark.asyncio
@@ -69,3 +70,28 @@ async def test_classify_prompt_difficulty_sends_the_prompt_as_state(monkeypatch)
 
     assert "What's the capital of France?" in FakeTypeSafeClient.last_kwargs["state"]
     assert "size" in FakeTypeSafeClient.last_kwargs["questions"]
+
+
+class UnexpectedChoiceClient(FakeTypeSafeClient):
+    def system_one(self, **kwargs):
+        return FakeSystemOneResponse("huge", 0.99)
+
+
+@pytest.mark.asyncio
+async def test_classify_prompt_difficulty_rejects_a_size_jev_was_not_asked_for(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(typesafe_sdk, "TypeSafeClient", UnexpectedChoiceClient)
+
+    with pytest.raises(ValueError, match="huge"):
+        await classify_prompt_difficulty("anything")
+
+
+@pytest.mark.asyncio
+async def test_classify_prompt_difficulty_only_offers_known_sizes_as_choices(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(typesafe_sdk, "TypeSafeClient", FakeTypeSafeClient)
+
+    await classify_prompt_difficulty("anything")
+
+    criteria = FakeTypeSafeClient.last_kwargs["questions"]["size"].criteria
+    assert set(criteria.keys()) == set(MODELS_BY_SIZE.keys())
