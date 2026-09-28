@@ -12,3 +12,9 @@ wheels/
 # Local secrets
 .env
 
+# Generated social-share assets — not part of the repo history
+docs/durable-strands-agents.gif
+docs/durable-strands-agents.mp4
+.DS_Store
+docs/.DS_Store
+
