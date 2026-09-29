@@ -60,6 +60,110 @@ kill switch's Bedrock toggle becomes a no-op (the AWS-feed toggle still works ei
 that path is `urllib`-based and always proxy-aware once the env var is set on the worker
 process — just not by default here).
 
+## Running on Bedrock AgentCore (`agentcore_worker.py`)
+
+There is a second, independent way to run `DemoAgentWorkflow`: as a [Temporal Serverless
+Worker](https://docs.temporal.io/serverless-workers) hosted inside an [Amazon Bedrock
+AgentCore](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime.html) Runtime
+session, adapted from Temporal's own reference sample
+(`temporalio/samples-python#360`, `bedrock_agentcore/strands_agent/`). See the README's
+"Running on Amazon Bedrock AgentCore" section for the deploy steps. A few things that will bite
+you if you don't know them:
+
+**The network kill-switch demo does not exist here, on purpose.** AgentCore Runtime is a
+managed sandbox; there's no equivalent of threading `HTTPS_PROXY` through a proxy you control.
+`agentcore_worker.py` still calls `make_strands_plugin()` from `worker.py` (so the three
+Bedrock tiers stay registered the same way), but it never sets `HTTPS_PROXY` in that
+environment, so the proxy branch is always a no-op there — this is expected, not a bug to "fix"
+by porting `proxy.py` into AgentCore.
+
+**`agentcore_worker.py`'s `@app.entrypoint` must not block on the whole polling session.** It
+starts the Temporal `Worker` as a background `asyncio.Task` via `app.add_async_task(...)` and
+returns immediately. If you ever see it awaiting `run_worker()` directly inside `invoke()`,
+that's wrong — AgentCore would hold the invocation open for the entire time the Worker polls
+instead of just acknowledging that it started.
+
+**The `ActivityTracker` interceptor's idle debounce is load-bearing, not decorative.** Without
+it, the Worker would either shut down the instant it has no Task to poll (killing an in-flight
+model call in AgentCore's eyes, since nothing marks the session `HealthyBusy` after that) or
+never shut down at all (defeating AgentCore's idle-timeout billing). `AGENTCORE_DEBOUNCE_SECONDS`
+controls how long it waits after the last Activity finishes before draining.
+
+**`TEMPORAL_DEPLOYMENT_NAME`/`TEMPORAL_BUILD_ID` have no defaults and `run_worker()` will raise
+`KeyError` without them.** This is deliberate (matches the reference sample): a defaulted build
+ID would let the Worker silently register a Worker Deployment Version that nothing is actually
+routing Tasks to, which is a much more confusing failure than an immediate crash on startup.
+
+**This deploys against Temporal Cloud, not the local dev server `worker.py`/`web.py`/`cli.py`
+use.** Serverless Workers require Temporal Cloud because Temporal Cloud is the side that assumes
+an IAM role and invokes the AgentCore runtime endpoint directly — there's no equivalent for a
+self-hosted server reaching into a managed AWS sandbox. The namespace this repo targets is
+`temporal-agentcore-devrel.a2dd6.tmprl.cloud:7233`.
+
+**The IAM role's "External ID" is not issued anywhere in Temporal Cloud's UI — you generate it
+yourself.** It's just a shared secret string: you pick it, bake it into the invoke role's trust
+policy (`bin/mk-invoke-role.sh` / `iam-role-for-temporal-agentcore-invoke.yaml`'s
+`AssumeRoleExternalId` parameter), and pass that same value to
+`temporal worker deployment create-version --aws-agentcore-assume-role-external-id`. Temporal
+Cloud only ever enforces a match against whatever you configured; it never allocates or displays
+one. Confirmed live: `--aws-agentcore-skip-role-and-external-id` does **not** actually work
+against this namespace either — the server still rejects it demanding a role, despite the flag
+existing in `temporal worker deployment create-version --help`.
+
+**`--aws-agentcore-*` flags on `temporal worker deployment create-version` need `temporal` CLI
+1.9.1+.** Homebrew's default (1.7.1 as of this writing) only recognizes `--aws-lambda-*` for
+compute-provider config and will error as if the flag doesn't exist. `brew upgrade temporal`
+fixes it — this isn't a sign the feature is unsupported.
+
+**AgentCore runtime names cap at 48 characters, and it's `<project>_<runtime-name>` combined**
+(from `agentcore.json`'s top-level `"name"` and the runtime's own `"name"`), not just the
+runtime's name alone. `"DurableStrandsAgents"` + `"durable_strands_agents_worker"` (50 chars
+combined) fails `agentcore deploy` with "Runtime name too long" even though each half looks
+reasonable on its own — this repo settled on the shorter `DSAgents` / `agentcore_worker`. Also
+note `agentcore logs --runtime <name>` and `agentcore status` address it by the runtime's own
+short name (`agentcore_worker`), not the combined form that shows up in the deployed ARN
+(`DSAgents_agentcore_worker-<suffix>`).
+
+**A freshly `create-version`'d Worker Deployment Version is not automatically current.** Nothing
+routes Tasks to it until `temporal worker deployment set-current-version` is run too (with
+`--allow-no-pollers --yes` for a version that has no poller yet, which is normal for a
+scale-to-zero Serverless Worker that hasn't been invoked once).
+
+**`TEMPORAL_BUILD_ID` is a static string (`"1.0.0"`) and nothing enforces bumping it.** Re-running
+`bin/create-runtime.sh` alone redeploys new code to the *same* pinned build under Worker
+Versioning's `PINNED` behavior — if a Workflow is in-flight when that happens, its later Task
+attempts can replay against logic that no longer matches what it actually ran under. There is no
+automation here to force this (a demo repo doesn't warrant a build-tagging pipeline); the
+discipline is manual — bump the Build ID in `agentcore/agentcore.json` and re-run
+`create-version`/`set-current-version` with it whenever `agentcore_worker.py`, `agent_workflow.py`,
+`activities.py`, or `model_router.py` changes. See the README's AgentCore section for the exact
+commands.
+
+**Expect several seconds of cold-start latency on the first prompt after any gap longer than
+`AGENTCORE_DEBOUNCE_SECONDS`.** Each idle-shutdown-then-reinvoke cycle re-runs Python process
+startup, `make_strands_plugin()`'s three `BedrockModel` constructions, and a fresh
+`Client.connect()` before the first Activity even starts — this is the scale-to-zero tradeoff
+working as intended, not a bug to chase. Matters for live-demo pacing: back-to-back prompts
+inside the debounce window stay warm; a prompt after a long pause (e.g. after Q&A) will visibly
+lag.
+
+**Verified against AWS's own AgentCore Runtime security-best-practices guidance (not just this
+sample's own README) as of 2026-09-29, live against the deployed runtime — no changes needed:**
+- `requireMMDSV2: true` is already set (confirmed via `aws bedrock-agentcore-control
+  get-agent-runtime`) — the CLI's generated CDK stack handles the June 2026 MMDSv2 mandate on its
+  own; nothing in this repo needs to request it.
+- The runtime's execution role already includes `bedrock:InvokeModel` — confirmed empirically
+  (a real Bedrock call succeeded with no `additionalPolicies` entry for it), matching AWS's
+  documented default execution-role policy.
+- `iam-role-for-temporal-agentcore-invoke.yaml`'s `Resource` is already scoped to this specific
+  runtime ARN (plus a wildcard for its endpoints), not `*` — matches AWS's "avoid wildcard
+  resource statements, scope to specific runtime ARNs" guidance exactly, no change needed.
+- AWS's guidance to validate the `payload` your entrypoint receives (reject non-string
+  `prompt` fields, etc.) does not apply here the way it does in AWS's own examples: this
+  repo's `agentcore_worker.py` entrypoint never reads `payload` at all — the prompt travels
+  through a Temporal Workflow argument (`agentcore_starter.py`'s `execute_workflow` call), not
+  through AgentCore's invoke payload — so there is no untrusted-payload parsing path to harden.
+
 ## AWS account gotchas hit during development
 
 - SSO-based AWS profiles (`AWS_PROFILE` using the "login" credential provider) need

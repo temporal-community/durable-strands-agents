@@ -1,0 +1,8 @@
+[
+  {
+    "name": "default",
+    "description": "temporal-agentcore-devrel AWS account (SSO profile: prd)",
+    "account": "683569193984",
+    "region": "us-west-2"
+  }
+]

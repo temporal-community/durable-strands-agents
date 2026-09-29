@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "DSAgents",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:project-name": "DSAgents"
+  },
+  "runtimes": [
+    {
+      "name": "agentcore_worker",
+      "description": "DemoAgentWorkflow (Jev model routing, AWS RSS tool) on a scale-to-zero Temporal worker",
+      "build": "CodeZip",
+      "entrypoint": "agentcore_worker.py",
+      "codeLocation": ".",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "authorizerType": "AWS_IAM",
+      "envVars": [
+        {
+          "name": "TEMPORAL_ADDRESS",
+          "value": "temporal-agentcore-devrel.a2dd6.tmprl.cloud:7233"
+        },
+        {
+          "name": "TEMPORAL_NAMESPACE",
+          "value": "temporal-agentcore-devrel.a2dd6"
+        },
+        {
+          "name": "TEMPORAL_API_KEY",
+          "value": "<your-api-key>"
+        },
+        {
+          "name": "TEMPORAL_TASK_QUEUE",
+          "value": "agentcore-durable-strands-agents-tq"
+        },
+        {
+          "name": "TEMPORAL_DEPLOYMENT_NAME",
+          "value": "durable-strands-agents-agentcore"
+        },
+        {
+          "name": "TEMPORAL_BUILD_ID",
+          "value": "1.0.0"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-west-2"
+        },
+        {
+          "name": "AGENTCORE_DEBOUNCE_SECONDS",
+          "value": "60"
+        },
+        {
+          "name": "OPENROUTER_API_KEY",
+          "value": "<your-openrouter-api-key>"
+        }
+      ],
+      "lifecycleConfiguration": {
+        "idleRuntimeSessionTimeout": 900,
+        "maxLifetime": 28800
+      },
+      "endpoints": {
+        "temporal": {
+          "version": 1,
+          "description": "Invoked by Temporal Cloud Serverless Workers"
+        }
+      }
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "abTests": [],
+  "harnesses": [],
+  "datasets": [],
+  "payments": []
+}

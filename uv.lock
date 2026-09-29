@@ -226,6 +226,25 @@ wheels = [
 ]
 
 [[package]]
+name = "bedrock-agentcore"
+version = "1.24.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "pydantic" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/b7/7f9eb61f380a78f7ffa8506a37cd3ded03848d32a39744e59b3f68c3d9da/bedrock_agentcore-1.24.0.tar.gz", hash = "sha256:f3999e45668343c753424a8886b1f95cf1015c7d4b27788a93099c8de233c6ae", size = 1273535, upload-time = "2026-09-28T17:05:42.693Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/a8/8a7a2bbc9cb6c574c80c595909ae7340cb0d5517201fc813cc080e13e847/bedrock_agentcore-1.24.0-py3-none-any.whl", hash = "sha256:ecc3edcf4b0090736c23123356a7498ce1ac762b172301a1775a931c4d99e1dd", size = 522093, upload-time = "2026-09-28T17:05:41.165Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.43.91"
 source = { registry = "https://pypi.org/simple" }
@@ -574,6 +593,7 @@ name = "durable-strands-agents"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "bedrock-agentcore" },
     { name = "botocore", extra = ["crt"] },
     { name = "fastapi" },
     { name = "feedparser" },
@@ -592,6 +612,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bedrock-agentcore", specifier = ">=1.9.1" },
     { name = "botocore", extras = ["crt"], specifier = ">=1.43.91" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "feedparser", specifier = ">=6.0.14" },
