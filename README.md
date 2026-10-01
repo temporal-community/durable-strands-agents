@@ -7,7 +7,7 @@
 **A Strands AI agent, backed by Amazon Bedrock, running *durably* inside a Temporal workflow —**
 **crash the worker mid-run, cut the network mid-call, and it still finishes without redoing work.**
 
-Built for the AWS Community Day Colombo talk on durable AI agents.
+A hands-on demo of Temporal's durable execution applied to AI agents.
 
 [![Temporal](https://img.shields.io/badge/Temporal-durable_execution-7A81FF?style=for-the-badge&labelColor=101014)](https://temporal.io)
 [![Amazon Bedrock](https://img.shields.io/badge/Amazon_Bedrock-Claude_Haiku_%C2%B7_Sonnet_%C2%B7_Opus-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white&labelColor=101014)](https://aws.amazon.com/bedrock/)
@@ -126,13 +126,18 @@ for Jev — get one at [openrouter.ai/keys](https://openrouter.ai/keys).
 
 ## Demo the durability
 
-- 🔌 **Worker crash** — send a prompt, `Ctrl+C` the worker mid-run, restart it with the same env
-  vars. The workflow resumes instead of starting over.
-- 🌐 **Network outage** — click **Network** in the GUI, hit **Cut network** mid-run, watch it
-  retry, then **Restore network**. It completes without touching the worker at all.
+- 🔌 **Worker crash** — send a prompt, `Ctrl+C` the worker mid-run, watch the **Worker** pill in
+  the header flip red within ~1.5s, then restart it with the same env vars and watch the pill
+  flip back green. The workflow resumes instead of starting over.
+- 🌐 **Network outage** — click **Network** in the GUI, hit **Cut network** mid-run, watch a live
+  amber "retrying" step with a countdown appear in the step list, then **Restore network**. It
+  completes without touching the worker at all.
 - 🎯 **Model routing** — try a greeting, a routine coding question, and a deliberately hard
   multi-step design prompt back to back. Watch the tier badge move `small → medium → big` and
   the reasoning quality scale with it.
+- 💬 **The answer itself** — gets its own bordered, labeled card (green-dot "Answer" / red-dot
+  "Error") visually separated from the numbered step list above it, so the final payoff doesn't
+  read as just one more log line.
 
 ## Tests
 
@@ -140,10 +145,11 @@ for Jev — get one at [openrouter.ai/keys](https://openrouter.ai/keys).
 uv run pytest
 ```
 
-25 tests, fully offline — no real Temporal, Bedrock, or OpenRouter calls. Covers the logic this
+30 tests, fully offline — no real Temporal, Bedrock, or OpenRouter calls. Covers the logic this
 repo owns (`proxy.py` policy, `activities.py` parsing/classification, `model_router.py`'s
-routing + confidence-floor policy, the `ProgressHook`/routing pieces of `agent_workflow.py`).
-There's deliberately no full workflow-replay test — see [`CLAUDE.md`](CLAUDE.md) for why.
+routing + confidence-floor policy, the `ProgressHook`/routing pieces of `agent_workflow.py`,
+`web.py`'s retry-info mapping for the GUI). There's deliberately no full workflow-replay test —
+see [`CLAUDE.md`](CLAUDE.md) for why.
 
 (Or `source .venv/bin/activate` once per shell, then plain `pytest` works too — without that,
 a bare `pytest` uses your global Python and fails with `ModuleNotFoundError` for this
@@ -156,8 +162,8 @@ project's deps.)
 | `agent_workflow.py` | The Temporal workflow + `TemporalAgent`, model routing, progress hook |
 | `model_router.py` | Pure size→model policy: the confidence floor that biases up when unsure |
 | `activities.py` | Jev-based difficulty classifier + the AWS "What's New" RSS tool |
-| `worker.py` | Registers the workflow/activities, wires Bedrock (all 3 tiers) through the proxy if set |
-| `web.py` | FastAPI GUI backend + embedded network kill-switch proxy |
+| `worker.py` | Registers the workflow/activities, wires Bedrock (all 3 tiers) through the proxy if set, serves a TCP liveness beacon for the GUI's Worker pill |
+| `web.py` | FastAPI GUI backend + embedded network kill-switch proxy; surfaces worker liveness and in-flight Activity retries for the GUI |
 | `proxy.py` | The kill-switch: a tiny HTTP CONNECT proxy, no TLS termination |
 | `cli.py` | One-shot CLI alternative to the GUI |
 

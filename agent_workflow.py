@@ -24,7 +24,7 @@ CLASSIFY_TIMEOUT = timedelta(seconds=30)
 CLASSIFY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 
 INSTRUCTIONS = (
-    "You are a concise AWS assistant for a live conference demo. "
+    "You are a concise AWS assistant. "
     "Use your tool to check recent AWS announcements when relevant."
 )
 

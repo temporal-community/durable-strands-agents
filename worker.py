@@ -13,6 +13,18 @@ from model_router import MODELS_BY_SIZE
 
 TASK_QUEUE = os.environ.get("DEMO_TASK_QUEUE", "durable-strands-agents-tq")
 
+# A plain liveness beacon for the GUI's Worker pill (web.py's /api/worker) -- accepting and
+# immediately closing a TCP connection is enough. Temporal's own task-queue poller list was
+# tried first and rejected: it stayed "online" for 90+ seconds after the worker process was
+# killed outright (its staleness window is tuned for routing decisions, not demo-grade liveness),
+# so it can't deliver the near-instant "pill goes red" feedback a live crash demo needs.
+WORKER_HEALTH_PORT = int(os.environ.get("WORKER_HEALTH_PORT", 8787))
+
+
+async def _close_immediately(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    writer.close()
+    await writer.wait_closed()
+
 
 def make_strands_plugin() -> StrandsPlugin:
     # botocore ignores HTTPS_PROXY/HTTP_PROXY on its own (unlike urllib, which the AWS RSS
@@ -48,8 +60,21 @@ async def main() -> None:
         workflows=[DemoAgentWorkflow],
         activities=[get_recent_aws_announcements, classify_prompt_difficulty],
     )
+    # A bind failure here (e.g. a second worker left running on the same host, same default
+    # port) must not take down the Temporal worker over a purely cosmetic GUI feature -- fall
+    # back to no beacon (the pill just reads "offline" forever) rather than crashing main().
+    try:
+        health_server = await asyncio.start_server(_close_immediately, "127.0.0.1", WORKER_HEALTH_PORT)
+    except OSError as exc:
+        print(f"Worker health beacon disabled (port {WORKER_HEALTH_PORT}): {exc}")
+        health_server = None
+
     print(f"Worker started. Listening on task queue: {TASK_QUEUE}")
-    await worker.run()
+    if health_server is not None:
+        async with health_server:
+            await worker.run()
+    else:
+        await worker.run()
 
 
 if __name__ == "__main__":

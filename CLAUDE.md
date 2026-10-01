@@ -4,14 +4,33 @@ Context for working on this repo that isn't obvious from reading the code.
 
 ## What this is
 
-A live-demo app for an AWS Community Day Colombo talk on Temporal's `StrandsPlugin` /
-`TemporalAgent` integration (experimental, shipped 2026 — see
-`.venv/lib/*/site-packages/temporalio/contrib/strands/README.md` for the authoritative API
-docs, since this is too new for blog posts/training data to be reliable). The point of every
-piece here is to make a specific "aha" visible on stage: kill something mid-run, show Temporal
-resume without redoing finished work.
+A demo app showcasing Temporal's `StrandsPlugin`/`TemporalAgent` integration (experimental,
+shipped 2026 — see `.venv/lib/*/site-packages/temporalio/contrib/strands/README.md` for the
+authoritative API docs, since this is too new for blog posts/training data to be reliable). The
+point of every piece here is to make a specific "aha" visible: kill something mid-run, show
+Temporal resume without redoing finished work.
 
 ## Gotchas that will bite you if you don't know them
+
+**Temporal's task-queue poller list is NOT a usable "is the worker alive right now" signal —
+it's stale for a very long time.** `web.py`'s GUI has a Worker status pill
+(`/api/worker`/`#workerPill`) that needs to flip within ~1-2 seconds of `Ctrl+C`-ing the worker
+for the crash demo to land. The obvious approach — `client.workflow_service.describe_task_queue(...)`
+and checking `response.pollers` — was tried and measured live: it still reported a poller present
+90+ seconds after the worker process was confirmed dead. Don't reach for it as a liveness check.
+Instead, `worker.py` opens a trivial TCP beacon (`WORKER_HEALTH_PORT`, default 8787,
+`asyncio.start_server` that just accepts and closes) and `web.py` does a short-timeout
+`asyncio.open_connection` against it — this is near-instant in both directions because it's
+tied to the OS actually holding the port open, not to any Temporal-side bookkeeping.
+
+**`description.raw_description.pending_activities` is the only way to see an Activity retrying
+in progress, and it's not exposed as a first-class field on `WorkflowExecutionDescription`.**
+`web.py`'s `/api/status/{workflow_id}` reads this raw proto field (via `handle.describe()`'s
+`.raw_description`, the underlying `DescribeWorkflowExecutionResponse`) to surface a live
+"retrying" step in the GUI during the network kill-switch demo. Each `PendingActivityInfo` has
+`attempt`, `last_failure`, `next_attempt_schedule_time` — `next_attempt_schedule_time` is only
+populated during the backoff gap between attempts, not while an attempt is actively executing,
+so the GUI falls back to a plain "retrying…" when it's null rather than assuming it's always set.
 
 **botocore does NOT read `HTTPS_PROXY`/`HTTP_PROXY` env vars on its own.** `feedparser`/`urllib`
 do (that's why `activities.py` needed zero changes for the kill-switch demo to work on the RSS
@@ -59,6 +78,13 @@ those env vars, it talks to Bedrock directly — the CLI (`cli.py`) still works 
 kill switch's Bedrock toggle becomes a no-op (the AWS-feed toggle still works either way, since
 that path is `urllib`-based and always proxy-aware once the env var is set on the worker
 process — just not by default here).
+
+The same kind of mismatch applies to `WORKER_HEALTH_PORT` (default `8787`): `worker.py` binds it
+for its liveness beacon, and `web.py` reads the same env var independently to know which port to
+probe for the Worker pill. If you ever need to run a second worker on the same host and override
+`WORKER_HEALTH_PORT` on its command line, you must set the identical value when launching
+`web.py` too — otherwise the pill probes the wrong (or default) port forever and reads "offline"
+for a worker that's actually healthy, with no error to point at why.
 
 ## AWS account gotchas hit during development
 
